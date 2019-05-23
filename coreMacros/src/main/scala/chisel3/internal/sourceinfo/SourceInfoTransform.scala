@@ -22,11 +22,13 @@ import scala.reflect.macros.whitebox
 trait SourceInfoTransformMacro {
   val c: Context
   import c.universe._
-  def thisObj = c.prefix.tree
+  def thisObj: Tree = c.prefix.tree
   def implicitSourceInfo = q"implicitly[_root_.chisel3.internal.sourceinfo.SourceInfo]"
-  def implicitCompileOptions = q"implicitly[_root_.chisel3.core.CompileOptions]"
+  def implicitCompileOptions = q"implicitly[_root_.chisel3.CompileOptions]"
 }
 
+// Workaround for https://github.com/sbt/sbt/issues/3966
+object UIntTransform
 class UIntTransform(val c: Context) extends SourceInfoTransformMacro {
   import c.universe._
   def bitset(off: c.Tree, dat: c.Tree): c.Tree = {
@@ -34,6 +36,8 @@ class UIntTransform(val c: Context) extends SourceInfoTransformMacro {
   }
 }
 
+// Workaround for https://github.com/sbt/sbt/issues/3966
+object InstTransform
 // Module instantiation transform
 class InstTransform(val c: Context) extends SourceInfoTransformMacro {
   import c.universe._
@@ -42,6 +46,8 @@ class InstTransform(val c: Context) extends SourceInfoTransformMacro {
   }
 }
 
+// Workaround for https://github.com/sbt/sbt/issues/3966
+object MemTransform
 class MemTransform(val c: Context) extends SourceInfoTransformMacro {
   import c.universe._
   def apply[T: c.WeakTypeTag](size: c.Tree, t: c.Tree): c.Tree = {
@@ -49,6 +55,8 @@ class MemTransform(val c: Context) extends SourceInfoTransformMacro {
   }
 }
 
+// Workaround for https://github.com/sbt/sbt/issues/3966
+object MuxTransform
 class MuxTransform(val c: Context) extends SourceInfoTransformMacro {
   import c.universe._
   def apply[T: c.WeakTypeTag](cond: c.Tree, con: c.Tree, alt: c.Tree): c.Tree = {
@@ -57,6 +65,8 @@ class MuxTransform(val c: Context) extends SourceInfoTransformMacro {
   }
 }
 
+// Workaround for https://github.com/sbt/sbt/issues/3966
+object VecTransform
 class VecTransform(val c: Context) extends SourceInfoTransformMacro {
   import c.universe._
   def apply_elts(elts: c.Tree): c.Tree = {
@@ -84,15 +94,17 @@ abstract class AutoSourceTransform extends SourceInfoTransformMacro {
   /** Returns the TermName of the transformed function, which is the applied function name with do_
     * prepended.
     */
-  def doFuncTerm = {
+  def doFuncTerm: TermName = {
     val funcName = c.macroApplication match {
       case q"$_.$funcName[..$_](...$_)" => funcName
-      case _ => throw new Exception(s"Chisel Internal Error: Could not resolve function name from macro application: ${showCode(c.macroApplication)}")
+      case _ => throw new Exception(s"Chisel Internal Error: Could not resolve function name from macro application: ${showCode(c.macroApplication)}") // scalastyle:ignore line.size.limit
     }
     TermName("do_" + funcName)
   }
 }
 
+// Workaround for https://github.com/sbt/sbt/issues/3966
+object SourceInfoTransform
 class SourceInfoTransform(val c: Context) extends AutoSourceTransform {
   import c.universe._
 
@@ -129,6 +141,8 @@ class SourceInfoTransform(val c: Context) extends AutoSourceTransform {
   }
 }
 
+// Workaround for https://github.com/sbt/sbt/issues/3966
+object CompileOptionsTransform
 class CompileOptionsTransform(val c: Context) extends AutoSourceTransform {
   import c.universe._
 
@@ -145,8 +159,10 @@ class CompileOptionsTransform(val c: Context) extends AutoSourceTransform {
   }
 }
 
-/** Special whitebox version of the blackbox SourceInfoTransform, used when fun things need to happen to satisfy the
-  * type system while preventing the use of macro overrides.
+// Workaround for https://github.com/sbt/sbt/issues/3966
+object SourceInfoWhiteboxTransform
+/** Special whitebox version of the blackbox SourceInfoTransform, used when fun things need to
+  * happen to satisfy the type system while preventing the use of macro overrides.
   */
 class SourceInfoWhiteboxTransform(val c: whitebox.Context) extends AutoSourceTransform {
   import c.universe._

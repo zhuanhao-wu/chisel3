@@ -21,7 +21,7 @@ class AutoNestedCloneSpec extends ChiselFlatSpec with Matchers {
           class InnerIOType extends Bundle {
             val in = Input(UInt(w.W))
           }
-          def getIO = new InnerIOType
+          def getIO: InnerIOType = new InnerIOType
         }
         val io = IO(new Bundle {})
         val myWire = Wire((new Middle(w)).getIO)
@@ -66,8 +66,8 @@ class AutoNestedCloneSpec extends ChiselFlatSpec with Matchers {
     elaborate {
       class TestModule(w: Int) extends Module {
         val io = IO(new BundleWithAnonymousInner(w) )
-        val w0 = WireInit(io)
-        val w1 = WireInit(io.inner)
+        val w0 = WireDefault(io)
+        val w1 = WireDefault(io.inner)
       }
       new TestModule(8)
     }
@@ -82,8 +82,8 @@ class AutoNestedCloneSpec extends ChiselFlatSpec with Matchers {
         val io = IO(new Bundle {
           val inner = Input(bun)
         })
-        val w0 = WireInit(io)
-        val w1 = WireInit(io.inner)
+        val w0 = WireDefault(io)
+        val w1 = WireDefault(io.inner)
       }
       new TestModule(8)
     }
@@ -102,12 +102,12 @@ class AutoNestedCloneSpec extends ChiselFlatSpec with Matchers {
     }
   }
 
-  behavior of "anonymous doubly-nested inner bundle fails with clear error"
-  ( the[ChiselException] thrownBy {
-    elaborate {
+  // Test ignored because the compatibility null-inserting autoclonetype doesn't trip this
+  ignore should "fail on anonymous doubly-nested inner bundle with clear error" in {
+    intercept[ChiselException] { elaborate {
       class Outer(val w: Int) extends Module {
         class Middle(val w: Int) {
-          def getIO = new Bundle {
+          def getIO: Bundle = new Bundle {
             val in = Input(UInt(w.W))
           }
         }
@@ -115,6 +115,6 @@ class AutoNestedCloneSpec extends ChiselFlatSpec with Matchers {
         val myWire = Wire((new Middle(w)).getIO)
       }
       new Outer(2)
-    }
-  }).getMessage should include("Unable to determine instance")
+    }}.getMessage should include("Unable to determine instance")
+  }
 }
