@@ -233,4 +233,35 @@ class QueueSpec extends ChiselPropSpec {
       }
     }
   }
+
+  property("Queue.irrevocable should elaborate") {
+    assertTesterPasses {
+      new BasicTester {
+        val m = Module(new Module {
+          val io = IO(new Bundle {
+            val in = Flipped(Decoupled(UInt(32.W)))
+            val out = Decoupled(UInt(32.W))
+          })
+
+          val x = Queue.irrevocable(io.in, 1)
+          x.ready := io.out.ready
+          io.out.valid := x.valid
+          io.out.bits := x.bits
+        })
+        val tick = RegInit(false.B)
+        tick := true.B
+        m.io.out.ready := false.B
+        when (~tick) {
+          m.io.in.valid := true.B
+          m.io.in.bits := 123.U
+          chisel3.assert(m.io.in.ready)
+        } .otherwise {
+          m.io.in.valid := false.B
+          m.io.in.bits := DontCare
+          chisel3.assert(~m.io.in.ready)
+          stop()
+        }
+      }
+    }
+  }
 }
