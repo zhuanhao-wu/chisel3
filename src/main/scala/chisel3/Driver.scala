@@ -3,14 +3,17 @@
 package chisel3
 
 import chisel3.internal.ErrorLog
-import chisel3.internal.firrtl._
-import chisel3.experimental.{RawModule, RunFirrtlTransform}
-
-import java.io._
-
+import internal.firrtl._
 import firrtl._
+import firrtl.options.{Phase, PhaseManager, StageError}
+import firrtl.options.phases.DeletedWrapper
+import firrtl.options.Viewer.view
 import firrtl.annotations.JsonProtocol
 import firrtl.util.{BackendCompilationUtilities => FirrtlBackendCompilationUtilities}
+import chisel3.stage.{ChiselExecutionResultView, ChiselGeneratorAnnotation, ChiselStage}
+import chisel3.stage.phases.DriverCompatibility
+import java.io._
+
 
 /**
   * The Driver provides methods to invoke the chisel3 compiler and the firrtl compiler.
@@ -87,7 +90,7 @@ object Driver extends BackendCompilationUtilities {
     * @param gen A function that creates a Module hierarchy.
     * @return The resulting Chisel IR in the form of a Circuit. (TODO: Should be FIRRTL IR)
     */
-  def elaborate[T <: RawModule](gen: () => T): Circuit = internal.Builder.build(Module(gen()))
+  def elaborate[T <: RawModule](gen: () => T): Circuit = internal.Builder.build(Module(gen()))._1
 
   /**
     * Convert the given Chisel IR Circuit to a FIRRTL Circuit.
@@ -196,72 +199,39 @@ object Driver extends BackendCompilationUtilities {
   def execute( // scalastyle:ignore method.length
       optionsManager: ExecutionOptionsManager with HasChiselExecutionOptions with HasFirrtlOptions,
       dut: () => RawModule): ChiselExecutionResult = {
-    val circuitOpt = try {
-      Some(elaborate(dut))
+
+    val annos: AnnotationSeq =
+      Seq(DriverCompatibility.OptionsManagerAnnotation(optionsManager), ChiselGeneratorAnnotation(dut)) ++
+        optionsManager.chiselOptions.toAnnotations ++
+        optionsManager.firrtlOptions.toAnnotations ++
+        optionsManager.commonOptions.toAnnotations
+
+    val targets =
+      Seq( classOf[DriverCompatibility.AddImplicitOutputFile],
+           classOf[DriverCompatibility.AddImplicitOutputAnnotationFile],
+           classOf[DriverCompatibility.DisableFirrtlStage],
+           classOf[ChiselStage],
+           classOf[DriverCompatibility.MutateOptionsManager],
+           classOf[DriverCompatibility.ReEnableFirrtlStage],
+           classOf[DriverCompatibility.FirrtlPreprocessing],
+           classOf[chisel3.stage.phases.MaybeFirrtlStage] )
+    val currentState =
+      Seq( classOf[firrtl.stage.phases.DriverCompatibility.AddImplicitFirrtlFile] )
+
+    val phases: Seq[Phase] = new PhaseManager(targets, currentState) {
+      override val wrappers = Seq( DeletedWrapper(_: Phase) )
+    }.transformOrder
+
+    val annosx = try {
+      phases.foldLeft(annos)( (a, p) => p.transform(a) )
     } catch {
-      case ce: ChiselException =>
-        val stackTrace = if (!optionsManager.chiselOptions.printFullStackTrace) {
-          ce.chiselStackTrace
-        } else {
-          val sw = new StringWriter
-          ce.printStackTrace(new PrintWriter(sw))
-          sw.toString
-        }
-        Predef.augmentString(stackTrace).lines.foreach(line => println(s"${ErrorLog.errTag} $line")) // scalastyle:ignore regex line.size.limit
-        None
+      /* ChiselStage and FirrtlStage can throw StageError. Since Driver is not a StageMain, it cannot catch these. While
+       * Driver is deprecated and removed in 3.2.1+, the Driver catches all errors.
+       */
+      case e: StageError => annos
     }
 
-    circuitOpt.map { circuit =>
-      // this little hack let's us set the topName with the circuit name if it has not been set from args
-      optionsManager.setTopNameIfNotSet(circuit.name)
-
-      val firrtlOptions = optionsManager.firrtlOptions
-      val chiselOptions = optionsManager.chiselOptions
-
-      val firrtlCircuit = Converter.convert(circuit)
-
-      // Still emit to leave an artifact (and because this always has been the behavior)
-      val firrtlString = Driver.emit(circuit)
-      val firrtlFileName = firrtlOptions.getInputFileName(optionsManager)
-      val firrtlFile = new File(firrtlFileName)
-
-      val w = new FileWriter(firrtlFile)
-      w.write(firrtlString)
-      w.close()
-
-      // Emit the annotations because it has always been the behavior
-      val annotationFile = new File(optionsManager.getBuildFileName("anno.json"))
-      val af = new FileWriter(annotationFile)
-      val firrtlAnnos = circuit.annotations.map(_.toFirrtl)
-      af.write(JsonProtocol.serialize(firrtlAnnos))
-      af.close()
-
-      /** Find the set of transform classes associated with annotations then
-        * instantiate an instance of each transform
-        * @note Annotations targeting firrtl.Transform will not result in any
-        *   transform being instantiated
-        */
-      val transforms = circuit.annotations
-                         .collect { case anno: RunFirrtlTransform => anno.transformClass }
-                         .distinct
-                         .filterNot(_ == classOf[firrtl.Transform])
-                         .map { transformClass: Class[_ <: Transform] =>
-                           transformClass.newInstance()
-                         }
-      /* This passes the firrtl source and annotations directly to firrtl */
-      optionsManager.firrtlOptions = optionsManager.firrtlOptions.copy(
-        firrtlCircuit = Some(firrtlCircuit),
-        annotations = optionsManager.firrtlOptions.annotations ++ firrtlAnnos,
-        customTransforms = optionsManager.firrtlOptions.customTransforms ++ transforms.toList)
-
-      val firrtlExecutionResult = if(chiselOptions.runFirrtlCompiler) {
-        Some(firrtl.Driver.execute(optionsManager))
-      }
-      else {
-        None
-      }
-      ChiselExecutionSuccess(Some(circuit), firrtlString, firrtlExecutionResult)
-    }.getOrElse(ChiselExecutionFailure("could not elaborate circuit"))
+    view[ChiselExecutionResult](annosx)
   }
 
   /**
