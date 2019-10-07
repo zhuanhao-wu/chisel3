@@ -37,27 +37,34 @@ class MuxLookupWrapper(keyWidth: Int, default: Int, mapping: () => Seq[(UInt, UI
 class MuxLookupExhaustiveSpec extends ChiselPropSpec {
   val keyWidth = 2
   val default = 9 // must be less than 10 to avoid hex/decimal mismatches
+  val firrtlLit = s"""UInt<4>("h0$default")"""
 
-  // Assumes there are no temps with '9' in the name -> fails conservatively
+  // Assumes there are no literals with 'UInt<4>("h09")' in the output FIRRTL
   // Assumes no binary recoding in output
 
-  val incomplete = { () => Seq(0.U -> 1.U, 1.U -> 2.U, 2.U -> 3.U) }
+  val incomplete = () => Seq(0.U -> 1.U, 1.U -> 2.U, 2.U -> 3.U)
   property("The default value should not be optimized away for an incomplete MuxLookup") {
-    val c = Driver.emit { () => new MuxLookupWrapper(keyWidth, default, incomplete) }
-    println(c.toString)
-    c.contains(default.toString) should be (true) // not optimized away
+    Driver.emit { () => new MuxLookupWrapper(keyWidth, default, incomplete) } should include (firrtlLit)
   }
 
-  val exhaustive = { () => Seq(0.U -> 1.U, 1.U -> 2.U, 2.U -> 3.U, 3.U -> 0.U) }
+  val exhaustive = () => (3.U -> 0.U) +: incomplete()
   property("The default value should be optimized away for an exhaustive MuxLookup") {
-    val c = Driver.emit { () => new MuxLookupWrapper(keyWidth, default, exhaustive) }
-    c.contains(default.toString) should be (false) // optimized away
+    Driver.emit { () => new MuxLookupWrapper(keyWidth, default, exhaustive) } should not include (firrtlLit)
   }
 
-  val overlap = { () => Seq(0.U -> 1.U, 1.U -> 2.U, 2.U -> 3.U, 4096.U -> 0.U) }
+  val overlap = () => (4096.U -> 0.U) +: incomplete()
   property("The default value should not be optimized away for a MuxLookup with 2^{keyWidth} non-distinct mappings") {
-    val c = Driver.emit { () => new MuxLookupWrapper(keyWidth, default, overlap) }
-    c.contains(default.toString) should be (true) // not optimized away
+    Driver.emit { () => new MuxLookupWrapper(keyWidth, default, overlap) } should include (firrtlLit)
+  }
+
+  val nonLiteral = () => { val foo = Wire(UInt()); (foo -> 1.U) +: incomplete() }
+  property("The default value should not be optimized away for a MuxLookup with a non-literal") {
+    Driver.emit { () => new MuxLookupWrapper(keyWidth, default, nonLiteral) } should include (firrtlLit)
+  }
+
+  val nonLiteralStillFull = () => { val foo = Wire(UInt()); (foo -> 1.U) +: exhaustive() }
+  property("The default value should be optimized away for a MuxLookup with a non-literal that is still full") {
+    Driver.emit { () => new MuxLookupWrapper(keyWidth, default, nonLiteralStillFull) } should not include (firrtlLit)
   }
 
 }
