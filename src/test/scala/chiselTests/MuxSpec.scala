@@ -44,6 +44,7 @@ class MuxLookupExhaustiveSpec extends ChiselPropSpec {
   val incomplete = { () => Seq(0.U -> 1.U, 1.U -> 2.U, 2.U -> 3.U) }
   property("The default value should not be optimized away for an incomplete MuxLookup") {
     val c = Driver.emit { () => new MuxLookupWrapper(keyWidth, default, incomplete) }
+    println(c.toString)
     c.contains(default.toString) should be (true) // not optimized away
   }
 
@@ -54,7 +55,7 @@ class MuxLookupExhaustiveSpec extends ChiselPropSpec {
   }
 
   val overlap = { () => Seq(0.U -> 1.U, 1.U -> 2.U, 2.U -> 3.U, 4096.U -> 0.U) }
-  property("The default value should be optimized away for a MuxLookup with 2^{keyWidth} non-distinct mappings") {
+  property("The default value should not be optimized away for a MuxLookup with 2^{keyWidth} non-distinct mappings") {
     val c = Driver.emit { () => new MuxLookupWrapper(keyWidth, default, overlap) }
     c.contains(default.toString) should be (true) // not optimized away
   }
